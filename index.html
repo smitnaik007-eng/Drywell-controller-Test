@@ -414,7 +414,7 @@
     try {
       await enableKeepAlive();
       bleDevice = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: "Drywell" }],
+        acceptAllDevices: true,
         optionalServices: [SERVICE_UUID]
       });
       bleDevice.addEventListener("gattserverdisconnected", onBLEDisconnected);
