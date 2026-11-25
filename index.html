@@ -98,6 +98,7 @@
     .badge.warn { background: rgba(245, 158, 11, 0.18); color: var(--warn); }
     .badge.fault { background: rgba(239, 68, 68, 0.22); color: var(--danger); }
     .badge.ext { background: rgba(167, 139, 250, 0.18); color: var(--ext); }
+    .badge.id-tag { background: rgba(56, 189, 248, 0.14); color: var(--accent); }
 
     /* Watchdog Banner */
     .watchdog-banner {
@@ -284,7 +285,7 @@
       margin-top: 12px;
     }
 
-    input[type="number"], input[type="password"], select {
+    input[type="number"], input[type="password"], input[type="text"], select {
       background: var(--sub);
       border: 1px solid var(--border-hi);
       color: var(--text);
@@ -391,7 +392,7 @@
     .cal-pt.ext { color: var(--ext); }
     .cal-cell input { padding: 6px 8px; font-size: 0.9rem; min-height: 36px; }
 
-    /* Zone PID Cards */
+    /* Zone PID & Serial Cards */
     .zone-card {
       background: var(--sub);
       border: 1px solid var(--border);
@@ -439,6 +440,7 @@
         <span class="ver-tag">v3</span>
       </div>
       <div class="ble-status">
+        <span id="unitIdBadge" class="badge id-tag">ID: --</span>
         <span id="faultBadge" class="badge fault" style="display:none;">RTD FAULT</span>
         <span id="connBadge" class="badge">Disconnected</span>
         <button id="btnConnect" class="btn btn-primary btn-sm" onclick="toggleBLE()">Connect</button>
@@ -684,7 +686,7 @@
     </div>
 
     <!-- =================================================================== -->
-    <!-- TAB 4: DUAL 19-POINT CALIBRATION (PIN LOCKED: 1234)                 -->
+    <!-- TAB 4: DUAL 19-POINT CALIBRATION (SAVED IN ESP32 NVS, PIN 1234)     -->
     <!-- =================================================================== -->
     <div class="window" id="win3">
       <div class="card" id="calLockView">
@@ -701,7 +703,7 @@
 
       <div class="card" id="calUnlockedView" style="display:none;">
         <div class="card-header">
-          <span class="card-title">19-Point Calibration Tables (°C)</span>
+          <span class="card-title">19-Point Calibration Tables (°C) — Saved on ESP32</span>
           <div class="row">
             <button class="btn btn-ghost btn-sm" onclick="sendCmd('GETCAL')">Sync</button>
             <button class="btn btn-primary btn-sm" onclick="saveAllCurrentCal()">Save All</button>
@@ -720,13 +722,13 @@
     </div>
 
     <!-- =================================================================== -->
-    <!-- TAB 5: MULTI-ZONE PID SETTINGS (PIN LOCKED: 1234)                   -->
+    <!-- TAB 5: MULTI-ZONE PID & UNIT SERIAL (SAVED IN ESP32 NVS, PIN 1234)  -->
     <!-- =================================================================== -->
     <div class="window" id="win4">
       <div class="card" id="pidLockView">
         <div class="lock-box">
           <div style="font-size:1.8rem;">🔒</div>
-          <div style="font-weight:700;">Zone PID Settings Locked</div>
+          <div style="font-weight:700;">Zone PID &amp; Unit Settings Locked</div>
           <div class="lock-form">
             <input type="password" id="pinInputPid" inputmode="numeric" maxlength="8" placeholder="PIN" onkeydown="if(event.key==='Enter') unlockSection('pid')" />
             <button class="btn btn-primary" onclick="unlockSection('pid')">Unlock</button>
@@ -771,7 +773,7 @@
           </div>
         </div>
 
-        <div class="zone-card" style="margin-bottom:0;">
+        <div class="zone-card">
           <div class="zone-head">
             <span class="zone-name">Zone 2 — Hot (&gt; 80 °C)</span>
             <span style="font-size:0.76rem; color:var(--muted);">Default: 10.5 / 0.280 / 60.0</span>
@@ -781,6 +783,17 @@
             <div><label class="field-lbl">Ki</label><input type="number" step="0.005" id="z2_ki" value="0.280" /></div>
             <div><label class="field-lbl">Kd</label><input type="number" step="0.5" id="z2_kd" value="60.0" /></div>
             <button class="btn btn-primary" onclick="saveZonePID(2)">Save</button>
+          </div>
+        </div>
+
+        <div class="zone-card" style="margin-bottom:0;">
+          <div class="zone-head">
+            <span class="zone-name">Unit Serial Number (Saved in ESP32 NVS)</span>
+            <span style="font-size:0.76rem; color:var(--muted);">Dedicated per Drywell</span>
+          </div>
+          <div class="row">
+            <input type="text" id="inputUnitId" maxlength="30" placeholder="e.g. DW-2026-001" style="flex:1; min-width:160px;" onkeydown="if(event.key==='Enter') saveUnitSerial()" />
+            <button class="btn btn-primary" onclick="saveUnitSerial()">Save ID</button>
           </div>
         </div>
       </div>
@@ -816,6 +829,7 @@
     let useCalScale = true;  // Minimum ±0.25°C Y-axis window around setpoint
 
     const live = {
+      id: "--",
       t: 25.000, r: 25.000, s: 25.000, p: 0.0,
       en: false, f: 0, z: 1, st: 0.000, ok: false,
       et: 0.000, er: 0.000, eok: false,
@@ -1065,6 +1079,16 @@
       }).catch(err => console.warn("BLE write:", err?.message || err));
     }
 
+    function applySerialToUI(serialStr) {
+      if (!serialStr) return;
+      live.id = serialStr;
+      document.getElementById("unitIdBadge").textContent = "ID: " + serialStr;
+      const idInp = document.getElementById("inputUnitId");
+      if (idInp && document.activeElement !== idInp) {
+        idInp.value = serialStr;
+      }
+    }
+
     function handleNotification(event) {
       rxBuffer += new TextDecoder().decode(event.target.value);
       const lines = rxBuffer.split("\n");
@@ -1074,6 +1098,9 @@
         if (!trimmed) continue;
         try {
           const msg = JSON.parse(trimmed);
+          if (typeof msg.id === "string" && msg.id.length > 0) {
+            applySerialToUI(msg.id);
+          }
           if (typeof msg.t === "number") {
             lastPacketTs = Date.now();
             live.t   = msg.t;
@@ -1117,7 +1144,7 @@
             }
           } else if (typeof msg.ecfg === "number") {
             if (msg.ecfg >= 0 && msg.ecfg < 19) {
-              extCalOffsets[msg.ecfg] = msg.off;
+              extCalOffsets[msg.ccfg] = msg.off;
               if (activeCalProbe === "ext") updateCalInput(msg.ecfg, msg.off);
             }
           }
@@ -1416,6 +1443,7 @@
       const uiStable = live.ok || (live.st > 0 && live.st <= 0.050 && Math.abs(live.t - live.s) <= 0.15);
 
       const row = {
+        Unit_ID: live.id,
         Timestamp: new Date(now).toISOString(),
         Time: timeStr,
         Elapsed_s: elapsedSec,
@@ -1457,11 +1485,12 @@
     function exportExcel() {
       if (logRows.length === 0) return;
       const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const safeId = (live.id && live.id !== "--" ? live.id : "Unit").replace(/[^a-zA-Z0-9_-]/g, "_");
       if (typeof XLSX !== "undefined") {
         const ws = XLSX.utils.json_to_sheet(logRows);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Drywell_Log");
-        XLSX.writeFile(wb, `Drywell_Log_${stamp}.xlsx`);
+        XLSX.writeFile(wb, `Drywell_${safeId}_Log_${stamp}.xlsx`);
       } else {
         const headers = Object.keys(logRows[0]);
         const csv = [
@@ -1472,14 +1501,14 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `Drywell_Log_${stamp}.csv`;
+        a.download = `Drywell_${safeId}_Log_${stamp}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       }
     }
 
     // =========================================================================
-    // DUAL 19-POINT CALIBRATION TABLE (INTERNAL & EXTERNAL)
+    // DUAL 19-POINT CALIBRATION TABLE (DEDICATED PER PROBE, SAVED ON ESP32)
     // =========================================================================
     function buildCalGrid() {
       const grid = document.getElementById("calGrid");
@@ -1531,7 +1560,7 @@
 
     function clearCurrentOffsets() {
       const label = activeCalProbe === "int" ? "INTERNAL control" : "EXTERNAL monitor";
-      if (!confirm(`Zero all 19 calibration offsets for the ${label} probe?`)) return;
+      if (!confirm(`Zero all 19 calibration offsets for the ${label} probe on this drywell?`)) return;
       if (activeCalProbe === "int") {
         intCalOffsets.fill(0.0);
         sendCmd("CALCLEAR");
@@ -1543,7 +1572,7 @@
     }
 
     // =========================================================================
-    // MULTI-ZONE PID SETTINGS
+    // MULTI-ZONE PID & UNIT SERIAL SETTINGS
     // =========================================================================
     function saveZonePID(zIdx) {
       const kp = parseFloat(document.getElementById(`z${zIdx}_kp`).value);
@@ -1555,8 +1584,16 @@
     }
 
     function resetDefaultPIDs() {
-      if (!confirm("Reset all 3 PID zones to factory defaults?")) return;
+      if (!confirm("Reset all 3 PID zones to factory defaults on this drywell?")) return;
       sendCmd("RSTPID");
+    }
+
+    function saveUnitSerial() {
+      const inp = document.getElementById("inputUnitId");
+      const clean = (inp.value || "").trim();
+      if (!clean) return;
+      applySerialToUI(clean);
+      sendCmd("SETID:" + clean);
     }
 
     // Initialize UI
