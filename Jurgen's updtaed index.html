@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Drywell Controller — 2026-11-25 (Draft)</title>
+
+
+  <style>
+    :root {
+      --bg: #0b1120;
+      --card: #111827;
+      --sub: #0f172a;
+      --border: #1f2937;
+      --border-hi: #334155;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #38bdf8;
+      --ext: #a78bfa;
+      --heat: #f97316;
+      --cool: #06b6d4;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: calc(70px + env(safe-area-inset-bottom));
+    }
+    @media (min-width: 720px) {
+      body { padding-bottom: 24px; }
+    }
+
+    .app {
+      width: 100%;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Sticky Topbar */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      gap: 8px;
+      position: sticky;
+      top: 8px;
+      z-index: 30;
+    }
+    .title {
+      font-size: 0.96rem;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ver-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: var(--accent);
+      background: rgba(56, 189, 248, 0.14);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); display: inline-block; flex-shrink: 0; }
+    .dot.connected { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .dot.stale { background: var(--warn); }
+
+    .ble-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .badge {
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      background: #1f2937;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .badge.connected { background: rgba(16, 185, 129, 0.16); color: var(--ok); }
+    .badge.warn { background: rgba(245, 158, 11, 0.18); color: var(--warn); }
+    .badge.fault { background: rgba(239, 68, 68, 0.22); color: var(--danger); }
+    .badge.ext { background: rgba(167, 139, 250, 0.18); color: var(--ext); }
+    .badge.id-tag { background: rgba(56, 189, 248, 0.14); color: var(--accent); }
+
+    /* Watchdog Banner */
+    .watchdog-banner {
+      display: none;
+      background: rgba(245, 158, 11, 0.16);
+      border: 1px solid var(--warn);
+      color: #fde68a;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    /* 5-Tab Navigation: Bottom Bar on Mobile, Top Bar on Desktop */
+    .nav-tabs {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 40;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      background: #0d1526;
+      border-top: 1px solid var(--border-hi);
+      padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    }
+    @media (min-width: 720px) {
+      .nav-tabs {
+        position: static;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 6px;
+        gap: 6px;
+      }
+    }
+    .tab-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      border-radius: 8px;
+      padding: 9px 4px;
+      font-weight: 700;
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: 0.15s;
+      min-height: 42px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+    }
+    @media (min-width: 720px) {
+      .tab-btn { font-size: 0.88rem; flex-direction: row; gap: 6px; }
+    }
+    .tab-btn.active {
+      background: #1e293b;
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+    }
+
+    .window { display: none; flex-direction: column; gap: 12px; }
+    .window.active { display: flex; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .card-title {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Side-by-Side Internal & External Probe Cards (Always 2 Columns) */
+    .probes-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .probe-card {
+      background: var(--sub);
+      border: 1px solid var(--border-hi);
+      border-radius: 12px;
+      padding: 12px 8px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .probe-card.ext-card {
+      border-color: rgba(167, 139, 250, 0.35);
+    }
+    .probe-label {
+      font-size: clamp(0.65rem, 2.2vw, 0.78rem);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+    }
+    .probe-val {
+      font-size: clamp(1.22rem, 4.7vw, 2.35rem);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .probe-card.ext-card .probe-val { color: var(--ext); }
+    .probe-sub {
+      font-size: clamp(0.66rem, 2.1vw, 0.79rem);
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    .strip-item span { display: block; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; }
+    .strip-item strong { font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+
+    /* Display Filter Bar */
+    .filter-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .filter-label { font-size: 0.75rem; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+    .filter-group { display: flex; gap: 6px; }
+    .filter-btn {
+      background: var(--sub);
+      border: 1px solid var(--border-hi);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .filter-btn.active {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Power Bar */
+    .power-wrap { margin-top: 12px; }
+    .power-head { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); margin-bottom: 5px; }
+    .power-track { width: 100%; height: 11px; background: var(--sub); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
+    .power-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.25s, background 0.25s; }
+
+    /* Manual Setpoint Row (No Presets) */
+    .setpoint-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    input[type="number"], input[type="password"], input[type="text"], select {
+      background: var(--sub);
+      border: 1px solid var(--border-hi);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 16px;
+      font-weight: 600;
+      width: 100%;
+      min-height: 44px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 700;
+      font-size: 0.88rem;
+      cursor: pointer;
+      min-height: 44px;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-sm { padding: 6px 10px; font-size: 0.78rem; min-height: 34px; }
+    .btn-primary { background: var(--accent); color: #082f49; }
+    .btn-enable { background: var(--ok); color: #022c22; }
+    .btn-disable { background: var(--danger); color: #fff; }
+    .btn-warn { background: var(--warn); color: #1c1917; }
+    .btn-ghost { background: #1e293b; color: var(--text); border: 1px solid var(--border-hi); }
+
+    .chart-box { height: 240px; width: 100%; }
+
+    /* Profiler & Logger Tables */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .field-lbl { font-size: 0.74rem; color: var(--muted); display: block; margin-bottom: 4px; font-weight: 600; }
+
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+    th, td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+    th { color: var(--muted); font-weight: 700; font-size: 0.74rem; text-transform: uppercase; }
+
+    .interval-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .chip {
+      background: var(--sub);
+      border: 1px solid var(--border-hi);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .chip.active {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Calibration Sub-Switcher */
+    .pill-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: var(--sub);
+      padding: 5px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+    .pill-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.82rem;
+      padding: 9px 8px;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    .pill-btn.active { background: #1e293b; color: var(--accent); }
+    .pill-btn.active.ext { color: var(--ext); }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 8px;
+    }
+    .cal-cell {
+      background: var(--sub);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .cal-pt { font-size: 0.8rem; font-weight: 700; color: var(--accent); }
+    .cal-pt.ext { color: var(--ext); }
+    .cal-cell input { padding: 6px 8px; font-size: 0.9rem; min-height: 36px; }
+
+    /* Zone PID & Serial Cards */
+    .zone-card {
+      background: var(--sub);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .zone-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .zone-name { font-weight: 700; font-size: 0.9rem; color: var(--accent); }
+    .zone-inputs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    @media (max-width: 560px) {
+      .zone-inputs { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* PIN Lock Screen */
+    .lock-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 14px;
+      text-align: center;
+      gap: 12px;
+    }
+    .lock-form { display: flex; gap: 8px; max-width: 260px; width: 100%; }
+    .lock-err { color: var(--danger); font-size: 0.82rem; min-height: 18px; }
+
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .progress-bar { width: 100%; height: 8px; background: var(--sub); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; width: 0%; background: var(--ok); transition: width 0.3s; }
+
+    .release-banner { border:1px solid var(--warn);color:#fde68a;border-radius:8px;padding:8px 12px;font-size:.75rem;line-height:1.5; }
+    .help { color:var(--muted);font-size:.78rem;line-height:1.6; }
+    .status-message { min-height:1.5em;color:var(--accent);font-size:.85rem;line-height:1.6;overflow-wrap:anywhere; }
+    details { margin-top:12px; } summary { cursor:pointer;font-weight:700;font-size:.85rem;padding:8px 0; }
+    .device-cards { display:flex;flex-wrap:wrap;gap:6px;margin-top:10px; }.device-cards button{white-space:normal;text-align:left;}
+    .metrics-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px; }.metrics-grid span {display:block;color:var(--muted);font-size:.75rem;margin-bottom:4px;}.metrics-grid strong{font-size:.86rem;font-variant-numeric:tabular-nums;}
+    .applied-date { padding:10px;border:1px solid var(--border-hi);background:var(--sub);border-radius:8px;font-size:.85rem;line-height:1.6; }
+    .correction-history {margin-top:18px;border-top:1px solid var(--border-hi);padding-top:16px;}
+    #calRecordDetail {margin-top:12px;padding:10px;border:1px solid var(--border-hi);border-radius:8px;max-height:500px;overflow:auto;}
+    #qrCanvasBox canvas {max-width:100%;margin-top:10px;background:white;padding:10px;}.qr-link{display:block;color:var(--accent);font-size:.75rem;overflow-wrap:anywhere;}
+    .lock-box {padding:8px 0;gap:6px;align-items:flex-start;text-align:left;}.lock-form{max-width:420px;}.lock-box>div:first-child{display:none;}
+    input[type=date] {background:var(--sub);border:1px solid var(--border-hi);color:var(--text);border-radius:8px;padding:10px 12px;min-height:44px;width:100%;font-size:16px;}
+    input:disabled,select:disabled {opacity:.8;color:var(--muted);}
+    @media(max-width:450px){.topbar{align-items:flex-start;}.title{font-size:.8rem;flex-wrap:wrap;}.ver-tag{font-size:.6rem;}.setpoint-row{grid-template-columns:1fr 1fr;}.setpoint-row input{grid-column:1/-1;}.filter-group{flex-wrap:wrap;}.metrics-grid{grid-template-columns:1fr;}.tab-btn{font-size:.7rem;}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Top Connection Bar -->
+    <div class="topbar">
+      <div class="title">
+        <span id="connDot" class="dot"></span>
+        <span>DRYWELL CONTROLLER</span>
+        <span class="ver-tag">25 Nov 2026 · Draft 1</span>
+      </div>
+      <div class="ble-status">
+        <span id="unitIdBadge" class="badge id-tag">ID: --</span>
+        <span id="faultBadge" class="badge fault" style="display:none;">RTD FAULT</span>
+        <span id="connBadge" class="badge">Disconnected</span>
+        <button id="btnConnect" class="btn btn-primary btn-sm" onclick="toggleBLE()">Connect</button>
+      </div>
+    </div>
+
+    <div id="watchdogBanner" class="watchdog-banner">
+      Fresh telemetry unavailable. Readings are historical; confirm the physical unit’s output state.
+    </div>
+
+
+    <div class="release-banner">Separate review version · 2026.11.25-draft.1 · Requires validation before operational use</div>
+    <section class="card device-panel" aria-label="Drywell devices">
+      <div class="form-grid">
+        <div><label for="activeDevice" class="field-lbl">Selected drywell — controls apply to this unit</label><select id="activeDevice"><option value="">No device selected</option></select></div>
+        <button class="btn btn-primary" onclick="addDevice()">Add device</button>
+        <button class="btn btn-ghost" onclick="restoreDevices()">Find saved devices</button>
+      </div>
+      <div id="deviceCards" class="device-cards" aria-label="Device connections"></div>
+      <p id="selectedMessage" class="status-message" role="status" aria-live="polite">Add a drywell to receive its serial number and readings.</p>
+      <details id="qrDialog">
+        <summary>QR quick selection and device labels</summary>
+        <p class="help">Scan a unit’s label or paste its serial. The reported serial must match before control is enabled. Bluetooth permission is still required.</p>
+        <label class="field-lbl" for="qrInput">Unit serial or this application’s QR link</label>
+        <div class="row"><input id="qrInput" type="text" maxlength="2048" placeholder="DW-001 or a QR link" style="flex:1;min-width:180px"><button class="btn btn-primary" onclick="prepareQuickConnect()">Select identity</button><button class="btn btn-ghost" onclick="startQRScanner()">Scan QR</button><button class="btn btn-ghost" onclick="stopQRScanner()">Stop camera</button><button class="btn btn-ghost" onclick="makeQR()">Make selected unit’s label</button></div>
+        <p id="quickStatus" class="help"></p><p id="scanStatus" class="help" role="status"></p>
+        <video id="qrVideo" playsinline muted style="display:none;width:100%;max-width:420px"></video><canvas id="qrScanCanvas" hidden></canvas>
+        <div id="qrCanvasBox"></div><a id="qrLink" class="qr-link"></a>
+      </details>
+    </section>
+
+    <!-- Navigation -->
+    <nav class="nav-tabs">
+      <button class="tab-btn active" id="tab0" onclick="switchWindow(0)">Control</button>
+      <button class="tab-btn" id="tab1" onclick="switchWindow(1)">Profiler</button>
+      <button class="tab-btn" id="tab2" onclick="switchWindow(2)">Logger</button>
+      <button class="tab-btn" id="tab3" onclick="switchWindow(3)">Calibration</button>
+      <button class="tab-btn" id="tab4" onclick="switchWindow(4)">PID</button>
+    </nav>
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: CONTROL & SIDE-BY-SIDE DUAL PROBE READOUTS (0.001 °C)        -->
+    <!-- =================================================================== -->
+    <div class="window active" id="win0">
+      <div class="card">
+        <div class="probes-grid">
+          <!-- Left: Internal Control Probe -->
+          <div class="probe-card">
+            <div class="probe-label">Internal Control</div>
+            <div class="probe-val" id="dispIntTemp">--.--- °C</div>
+            <div>
+              <span id="stabBadge" class="badge warn">Settling (±---)</span>
+            </div>
+            <div class="probe-sub" id="dispIntRaw">Raw: --.--- °C</div>
+          </div>
+
+          <!-- Right: External Monitor Probe -->
+          <div class="probe-card ext-card">
+            <div class="probe-label">External Monitor (planned)</div>
+            <div class="probe-val" id="dispExtTemp">--.--- °C</div>
+            <div>
+              <span id="extBadge" class="badge">Not Connected</span>
+            </div>
+            <div class="probe-sub" id="dispExtRaw">Raw: --.--- °C</div>
+          </div>
+        </div>
+
+        <div class="status-strip">
+          <div class="strip-item">
+            <span>Setpoint</span>
+            <strong id="dispSet" style="color:var(--accent);">25.00 °C</strong>
+          </div>
+          <div class="strip-item">
+            <span>Delta (Ext−Int)</span>
+            <strong id="dispDelta" style="color:var(--ext);">--.--- °C</strong>
+          </div>
+          <div class="strip-item">
+            <span>Zone / Output</span>
+            <strong id="dispZoneState">Z1 • OFF</strong>
+          </div>
+        </div>
+
+        <!-- Display-Only Damping Selector (Does Not Affect ESP32 PID) -->
+        <div class="filter-bar">
+          <span class="filter-label">Display Damping (UI Only)</span>
+          <div class="filter-group">
+            <button class="filter-btn" id="flt_1" onclick="setDisplayFilter(1)">Off</button>
+            <button class="filter-btn active" id="flt_10" onclick="setDisplayFilter(10)">Smooth (5s)</button>
+            <button class="filter-btn" id="flt_20" onclick="setDisplayFilter(20)">High (10s)</button>
+          </div>
+        </div>
+
+        <div class="power-wrap">
+          <div class="power-head">
+            <span>Output Power</span>
+            <span id="dispPower">0.0% (IDLE)</span>
+          </div>
+          <div class="power-track">
+            <div class="power-fill" id="powerBar"></div>
+          </div>
+        </div>
+
+        <!-- Manual Setpoint Only (No Preset Buttons) -->
+        <div class="setpoint-row">
+          <input type="number" id="inputSet" step="0.01" min="-30" max="150" value="25.00" placeholder="Target °C" onkeydown="if(event.key==='Enter') sendSetpoint()" />
+          <button id="btnSetpoint" class="btn btn-primary" onclick="sendSetpoint()">Set °C</button>
+          <button class="btn btn-enable" id="btnToggleOut" onclick="toggleOutput()">Start</button>
+        </div>
+
+        <button id="btnClearFault" class="btn btn-ghost" style="display:none; width:100%; margin-top:8px;" onclick="sendCmd('RSTFAULT')">
+          Clear fault (Admin editing required)
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Live Dual-Probe Trend</span>
+          <div class="row">
+            <button id="btnChartScale" class="btn btn-ghost btn-sm" onclick="toggleChartScale()">Scale: ±0.25°C</button>
+            <button class="btn btn-ghost btn-sm" onclick="clearChart()">Clear Graph</button>
+          </div>
+        </div>
+        <div class="chart-box">
+          <canvas id="tempChart"></canvas>
+        </div>
+      </div>
+
+      <section class="card" aria-label="Measured stability">
+        <div class="card-header"><span class="card-title">Measured stability</span><span id="stabilityReason" role="status">Waiting for telemetry</span></div>
+        <div class="metrics-grid">
+          <div><span>Continuous window</span><strong id="statCoverage">—</strong></div><div><span>Variation</span><strong id="statRange">—</strong></div>
+          <div><span>Standard deviation</span><strong id="statStd">—</strong></div><div><span>Drift</span><strong id="statDrift">—</strong></div>
+          <div><span>Mean error from target</span><strong id="statTargetError">—</strong></div><div><span>Internal − reference</span><strong id="statReferenceError">—</strong></div>
+        </div>
+        <p class="help">Measurement source: <span id="statSource">—</span><br>Device firmware: <span id="statFirmware">—</span></p>
+        <details><summary>Stability acceptance settings</summary><div class="form-grid">
+          <div><label class="field-lbl" for="stabilityWindow">Window (seconds)</label><input id="stabilityWindow" type="number" min="15" max="3600" step="1" value="60"></div>
+          <div><label class="field-lbl" for="stabilityBand">Maximum half-range (±°C)</label><input id="stabilityBand" type="number" min="0" max="5" step="0.001" value="0.050"></div>
+          <div><label class="field-lbl" for="stabilityTarget">Every reading within target (±°C)</label><input id="stabilityTarget" type="number" min="0" max="10" step="0.001" value="0.150"></div>
+          <button class="btn btn-ghost" onclick="applyStabilitySettings()">Apply to selected unit</button>
+        </div></details>
+        <p class="help">Display damping does not change these calculations. Stability does not establish accuracy or measurement uncertainty. The ADS1220 reference input is planned and disabled in this release. MAX31865 nominal resolution is approximately 0.03125°C; extra display digits are retained for calculations.</p>
+      </section>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: AUTOMATED STEP PROFILER                                      -->
+    <!-- =================================================================== -->
+    <div class="window" id="win1">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Automated Step Sequencer</span>
+          <span id="profStatusBadge" class="badge">Idle</span>
+        </div>
+
+        <div class="form-grid" style="margin-bottom:10px;">
+          <div>
+            <label class="field-lbl">Target (°C)</label>
+            <input type="number" id="profTarget" step="0.1" min="-30" max="150" value="0.0" />
+          </div>
+          <div>
+            <label class="field-lbl">Soak Time (min)</label>
+            <input type="number" id="profMinutes" step="0.5" min="0.5" max="600" value="10" />
+          </div>
+          <div>
+            <label class="field-lbl">Wait for Stable?</label>
+            <select id="profWaitStable">
+              <option value="1" selected>Yes (wait ±0.05°C)</option>
+              <option value="0">No (within ±0.10°C)</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="addProfileStep()">+ Add Step</button>
+        </div>
+
+        <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+          <div style="flex:1; min-width:170px;">
+            <label class="field-lbl">When Sequence Finishes</label>
+            <select id="profEndAction">
+              <option value="hold">Hold Final Setpoint</option>
+              <option value="stop">Stop Output (OFF)</option>
+            </select>
+          </div>
+          <div class="row" style="padding-top:16px;">
+            <button id="btnProfStart" class="btn btn-enable" onclick="startProfile()">Start</button>
+            <button id="btnProfSkip" class="btn btn-ghost" onclick="skipProfileStep()" disabled>Skip</button>
+            <button id="btnProfStop" class="btn btn-disable" onclick="stopProfile()" disabled>Stop</button>
+          </div>
+        </div>
+
+        <div id="profLiveBox" style="display:none; background:var(--sub); border:1px solid var(--border-hi); border-radius:10px; padding:10px; margin-bottom:10px;">
+          <div class="row" style="justify-content:space-between;">
+            <strong id="profStepInfo">Step 1 / 1</strong>
+            <span id="profTimer" style="color:var(--accent); font-weight:700;">--:--</span>
+          </div>
+          <div id="profSubInfo" style="font-size:0.8rem; color:var(--muted); margin-top:4px;">Ramping...</div>
+          <div class="progress-bar"><div id="profProgress" class="progress-fill"></div></div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Target (°C)</th>
+                <th>Soak (min)</th>
+                <th>Trigger</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="profTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: DATA LOGGER & EXCEL (.XLSX) EXPORT                           -->
+    <!-- =================================================================== -->
+    <div class="window" id="win2">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Data Logger</span>
+          <span id="logStatusBadge" class="badge">Stopped</span>
+        </div>
+
+        <label class="field-lbl">Logging Interval</label>
+        <div class="interval-chips" id="intervalChips">
+          <button class="chip active" onclick="setLogInterval(1, this)">1 s</button>
+          <button class="chip" onclick="setLogInterval(2, this)">2 s</button>
+          <button class="chip" onclick="setLogInterval(5, this)">5 s</button>
+          <button class="chip" onclick="setLogInterval(10, this)">10 s</button>
+          <button class="chip" onclick="setLogInterval(30, this)">30 s</button>
+          <button class="chip" onclick="setLogInterval(60, this)">1 min</button>
+          <button class="chip" onclick="setLogInterval(300, this)">5 min</button>
+        </div>
+
+        <div class="row" style="margin-bottom:12px;">
+          <div style="width:140px;">
+            <label class="field-lbl">Custom (sec)</label>
+            <input type="number" id="customLogSec" min="1" max="3600" step="1" value="1" onchange="applyCustomLogInterval()" />
+          </div>
+          <div class="row" style="padding-top:16px;">
+            <button id="btnLogToggle" class="btn btn-enable" onclick="toggleLogging()">Start Log</button>
+            <button class="btn btn-primary" onclick="exportExcel()">Export Excel</button>
+            <button class="btn btn-ghost" onclick="clearLog()">Clear</button>
+          </div>
+        </div>
+
+        <div class="status-strip" style="margin-top:0; margin-bottom:10px; border-top:none; padding-top:0;">
+          <div class="strip-item">
+            <span>Samples</span>
+            <strong id="logCount">0</strong>
+          </div>
+          <div class="strip-item">
+            <span>Interval</span>
+            <strong id="logIntervalDisp">1 s</strong>
+          </div>
+          <div class="strip-item">
+            <span>Duration</span>
+            <strong id="logDuration">00:00</strong>
+          </div>
+        </div>
+
+
+        <p class="help" id="storageStatus">Opening local log storage…</p>
+        <div class="row"><label class="field-lbl" for="savedRunSelect">Previously saved runs</label><select id="savedRunSelect" style="flex:1;min-width:200px"><option value="">Choose a saved run</option></select><button class="btn btn-ghost" onclick="refreshSavedRuns()">Refresh</button><button class="btn btn-primary" onclick="exportSavedLog()">Export saved run</button></div>
+        <p class="help">Logging runs independently for connected units. Export records to your laboratory’s controlled storage. Closing or suspending the browser can interrupt Bluetooth measurements.</p>
+        <div class="table-wrap" style="max-height:300px; overflow-y:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Set</th>
+                <th>Int (°C)</th>
+                <th>Ext (°C)</th>
+                <th>ΔT</th>
+                <th>Pwr</th>
+                <th>Stab</th>
+              </tr>
+            </thead>
+            <tbody id="logTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 4: DUAL 19-POINT CALIBRATION (SAVED IN ESP32 NVS, ADMIN EDITING)     -->
+    <!-- =================================================================== -->
+    <div class="window" id="win3">
+      <div class="card" id="calLockView">
+        <div class="lock-box">
+          <div style="font-size:1.8rem;">🔒</div>
+          <div style="font-weight:700;">Calibration — view corrections</div>
+          <div class="lock-form">
+            <input type="password" id="pinInputCal" aria-label="Calibration Admin password" autocomplete="off" maxlength="64" placeholder="Admin password" onkeydown="if(event.key==='Enter') unlockSection('cal')" />
+            <button class="btn btn-primary" onclick="unlockSection('cal')">Enable editing</button>
+          </div>
+          <div class="lock-err" id="pinErrCal"></div>
+        </div>
+      </div>
+
+      <div class="card" id="calUnlockedView">
+        <div class="card-header">
+          <span class="card-title">Calibration corrections (°C) — selected unit</span>
+          <div class="row">
+            <button class="btn btn-ghost btn-sm" onclick="sendCmd('GETCAL')">Sync</button>
+            <button class="btn btn-ghost btn-sm" onclick="DrywellEquipment.exportCurrentTable()">Export current table</button><button class="btn btn-primary btn-sm" onclick="saveAllCurrentCal()">Apply &amp; verify table</button>
+            <button class="btn btn-disable btn-sm" onclick="clearCurrentOffsets()">Zero All</button>
+            <button class="btn btn-ghost btn-sm" onclick="lockSection('cal')">Finish editing</button>
+          </div>
+        </div>
+
+        <div class="pill-switch">
+          <button id="calTabInt" class="pill-btn active" onclick="switchCalProbe('int')">Internal Control Probe</button>
+          <button id="calTabExt" class="pill-btn" onclick="switchCalProbe('ext')">External Monitor Probe</button>
+        </div>
+
+
+        <p class="help">Everyone can view this table. Admin editing is required to apply changes, and the output must be OFF. Enter corrections at the listed setpoints, then apply the complete table.</p>
+        <p class="applied-date">Last applied on device: <strong id="lastCalApplied">Connect and sync the unit</strong></p>
+        <div class="form-grid">
+          <div><label class="field-lbl" for="calDate">Calibration date</label><input type="date" id="calDate"></div>
+          <div><label class="field-lbl" for="calOperator">Applied by</label><input type="text" id="calOperator" maxlength="80" placeholder="Person applying corrections"></div>
+          <div><label class="field-lbl" for="calCertificate">Certificate / record reference</label><input type="text" id="calCertificate" maxlength="120" placeholder="Optional reference"></div>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+        <section class="correction-history" aria-label="Applied correction history">
+          <div class="card-header"><span class="card-title">Applied correction history · <span id="calHistoryCount">0</span></span><div class="row"><button class="btn btn-ghost btn-sm" onclick="DrywellEquipment.exportHistory()">Export correction history</button><button class="btn btn-ghost btn-sm" onclick="DrywellEquipment.exportBackup()">Back up records</button></div></div>
+          <p id="calRecordStatus" class="help" role="status">Connect a unit to view its local correction history.</p>
+          <div class="table-wrap"><table><thead><tr><th>Revision</th><th>Probe</th><th>Calibration date</th><th>Applied</th><th>Applied by</th><th>Reference</th><th>Date stored</th><th>Table</th></tr></thead><tbody id="calHistoryBody"></tbody></table></div>
+          <div id="calRecordDetail" class="table-wrap" hidden></div>
+          <details><summary>Equipment details — <span id="eqSerial">No device selected</span></summary>
+            <div class="form-grid">
+              <div><label class="field-lbl" for="eq_assetId">Asset ID</label><input type="text" id="eq_assetId" maxlength="120" disabled></div>
+              <div><label class="field-lbl" for="eq_model">Model</label><input type="text" id="eq_model" maxlength="120" disabled></div>
+              <div><label class="field-lbl" for="eq_location">Location</label><input type="text" id="eq_location" maxlength="120" disabled></div>
+              <div><label class="field-lbl" for="eq_dueDate">Calibration due (optional)</label><input type="date" id="eq_dueDate" disabled></div>
+              <div><label class="field-lbl" for="eq_serviceStatus">Service status</label><select id="eq_serviceStatus" disabled><option>Not assessed</option><option>In service</option><option>Out of service</option></select></div>
+              <div><label class="field-lbl" for="eq_notes">Notes</label><input type="text" id="eq_notes" maxlength="200" disabled></div>
+              <button id="btnSaveEquipment" class="btn btn-ghost" onclick="DrywellEquipment.saveEquipment()" disabled>Save equipment details</button>
+            </div>
+          </details>
+          <p class="help">The ESP32 stores its current table and last-applied date. Older firmware has no applied-date field. Earlier tables are retained in this browser and exported for laboratory record retention; this is not a central record system.</p>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 5: MULTI-ZONE PID & UNIT SERIAL (SAVED IN ESP32 NVS, ADMIN EDITING)  -->
+    <!-- =================================================================== -->
+    <div class="window" id="win4">
+      <div class="card" id="pidLockView">
+        <div class="lock-box">
+          <div style="font-size:1.8rem;">🔒</div>
+          <div style="font-weight:700;">PID &amp; unit settings — view only</div>
+          <div class="lock-form">
+            <input type="password" id="pinInputPid" aria-label="PID Admin password" autocomplete="off" maxlength="64" placeholder="Admin password" onkeydown="if(event.key==='Enter') unlockSection('pid')" />
+            <button class="btn btn-primary" onclick="unlockSection('pid')">Enable editing</button>
+          </div>
+          <div class="lock-err" id="pinErrPid"></div>
+        </div>
+      </div>
+
+      <div class="card" id="pidUnlockedView">
+        <div class="card-header">
+          <span class="card-title">Multi-Zone PID Parameters</span>
+          <div class="row">
+            <button class="btn btn-ghost btn-sm" onclick="sendCmd('GETZONES')">Sync</button>
+            <button class="btn btn-warn btn-sm" onclick="resetDefaultPIDs()">Defaults</button>
+            <button class="btn btn-ghost btn-sm" onclick="lockSection('pid')">Finish editing</button>
+          </div>
+        </div>
+
+        <div class="zone-card">
+          <div class="zone-head">
+            <span class="zone-name">Zone 0 — Cold (&lt; 15 °C)</span>
+            <span style="font-size:0.76rem; color:var(--muted);">Default: 10.9 / 0.135 / 58.0</span>
+          </div>
+          <div class="zone-inputs">
+            <div><label class="field-lbl">Kp</label><input type="number" step="0.1" id="z0_kp" value="10.9" /></div>
+            <div><label class="field-lbl">Ki</label><input type="number" step="0.005" id="z0_ki" value="0.135" /></div>
+            <div><label class="field-lbl">Kd</label><input type="number" step="0.5" id="z0_kd" value="58.0" /></div>
+            <button class="btn btn-primary" onclick="saveZonePID(0)">Save</button>
+          </div>
+        </div>
+
+        <div class="zone-card">
+          <div class="zone-head">
+            <span class="zone-name">Zone 1 — Mid (15 °C – 80 °C)</span>
+            <span style="font-size:0.76rem; color:var(--muted);">Default: 10.9 / 0.135 / 58.0</span>
+          </div>
+          <div class="zone-inputs">
+            <div><label class="field-lbl">Kp</label><input type="number" step="0.1" id="z1_kp" value="10.9" /></div>
+            <div><label class="field-lbl">Ki</label><input type="number" step="0.005" id="z1_ki" value="0.135" /></div>
+            <div><label class="field-lbl">Kd</label><input type="number" step="0.5" id="z1_kd" value="58.0" /></div>
+            <button class="btn btn-primary" onclick="saveZonePID(1)">Save</button>
+          </div>
+        </div>
+
+        <div class="zone-card">
+          <div class="zone-head">
+            <span class="zone-name">Zone 2 — Hot (&gt; 80 °C)</span>
+            <span style="font-size:0.76rem; color:var(--muted);">Default: 10.5 / 0.280 / 60.0</span>
+          </div>
+          <div class="zone-inputs">
+            <div><label class="field-lbl">Kp</label><input type="number" step="0.1" id="z2_kp" value="10.5" /></div>
+            <div><label class="field-lbl">Ki</label><input type="number" step="0.005" id="z2_ki" value="0.280" /></div>
+            <div><label class="field-lbl">Kd</label><input type="number" step="0.5" id="z2_kd" value="60.0" /></div>
+            <button class="btn btn-primary" onclick="saveZonePID(2)">Save</button>
+          </div>
+        </div>
+
+        <div class="zone-card" style="margin-bottom:0;">
+          <div class="zone-head">
+            <span class="zone-name">Unit Serial Number (Saved in ESP32 NVS)</span>
+            <span style="font-size:0.76rem; color:var(--muted);">Dedicated per Drywell</span>
+          </div>
+          <div class="row">
+            <input type="text" id="inputUnitId" maxlength="30" placeholder="e.g. DW-2026-001" style="flex:1; min-width:160px;" onkeydown="if(event.key==='Enter') saveUnitSerial()" />
+            <button class="btn btn-primary" onclick="saveUnitSerial()">Save ID</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/xlsx-0.20.3.full.min.js"></script>
+  <script src="vendor/qrcode-generator-1.4.4.js"></script>
+  <script src="vendor/jsqr-1.4.0.js"></script>
+  <script src="bluetooth.js"></script>
+  <script src="metrics.js"></script>
+  <script src="profile.js"></script>
+  <script src="qr.js"></script>
+  <script src="logstore.js"></script>
+  <script src="equipment.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
